@@ -1,0 +1,199 @@
+---
+title: "(Gentle) Cluster Analysis of the World by Happiness"
+output: html_notebook
+---
+
+```{r echo = F, message = F}
+library(tidyverse)
+library(data.table)
+library(DT)
+```
+
+```{r}
+wHappiness_Df <- read.csv("C:/Users/PC/Documents/R_4DS/WorldHappinessReport/world-happiness-report-2021.csv")
+glimpse(wHappiness_Df)
+```
+
+## Data Inspection and Cleaning
+
+```{r}
+## Check for missing values
+null_vars <- (sapply(wHappiness_Df, function(x) sum(is.na(x))))
+t(data.frame(null_vars))
+
+## Checking for Blank Values
+wHappiness_Df[wHappiness_Df == "",]
+```
+
+No missing or empty values, go-to-go.
+
+```{r}
+names(wHappiness_Df)
+```
+
+
+```{r}
+## Tidying the Column Name
+colClean <- function(x){
+  colnames(x) <- gsub("\\.\\.+",".", colnames(x));
+  x
+}
+
+wHappiness_Df <- colClean(wHappiness_Df) %>% 
+  rename(Country = ï.Country.name)
+names(wHappiness_Df)
+```
+
+```{r}
+# colnames(wHappiness_Df) <- gsub("Explained.by.", "", colnames(wHappiness_Df))
+# names(wHappiness_Df)
+```
+
+
+## Exploratory Data Analysis
+
+```{r}
+wHappiness_Df %>% 
+  count(Regional.indicator) %>% 
+  ggplot(aes(x = reorder(Regional.indicator, n), y = n)) +
+  geom_bar(stat = "identity") +
+  coord_flip()
+```
+
+#### Regions by LifeExpectancy
+```{r}
+# plotdata <- function(xx, y){
+#   if(is.integer(y) == TRUE){
+#     wHappiness_Df %>% 
+#     group_by(xx) %>% 
+#     summarise(mean_ = mean(y))
+#   } else {
+#     print("Enter Integer")
+#   }
+# }
+# 
+# plotdata(Regional.indicator, Healthy.life.expectancy)
+
+plotdata <- wHappiness_Df %>%
+  group_by(Regional.indicator) %>%
+  summarise(n = n(),
+            mean_ = mean(Healthy.life.expectancy),
+            sd = sd(Healthy.life.expectancy),
+            se = sd/sqrt(n),
+            ci = qt(0.0975, df = n - 1) * sd/sqrt(n))
+
+plotdata %>% 
+  ggplot(aes(x = reorder(Regional.indicator, mean_), y = mean_, group = 1)) +
+  geom_point() +
+  geom_line() +
+  geom_errorbar(aes(ymin = mean_ - se,
+                    ymax = mean_ + se),
+                width = .1) +
+  coord_flip()
+```
+
+
+## Cluster Analysis
+
+```{r}
+cluster_x <- wHappiness_Df %>% 
+  select(-c("Regional.indicator", "Country"))
+
+##
+cluster_x <- cluster_x[ , which(apply(cluster_x, 2, var) != 0)]
+which(apply(cluster_x, 2, var)==0)
+
+## Checking for clusters
+library(factoextra)
+library(gridExtra)
+
+set.seed(234)
+
+## Initiate clusters with k = (3,4,5,6)
+k0 <- kmeans(cluster_x, centers = 2, nstart = 25)
+k1 <- kmeans(cluster_x, centers = 3, nstart = 25)
+k2 <- kmeans(cluster_x, centers = 4, nstart = 25)
+k3 <- kmeans(cluster_x, centers = 5, nstart = 25)
+k4 <- kmeans(cluster_x, centers = 6, nstart = 25)
+
+##Visualize cluster results
+p0 <- fviz_cluster(k0, geom = "point", data = cluster_x) + ggtitle("K means k=3")
+p1 <- fviz_cluster(k1, geom = "point", data = cluster_x) + ggtitle("K means k=3")
+p2 <- fviz_cluster(k2, geom = "point", data = cluster_x) + ggtitle("K means k=4")
+p3 <- fviz_cluster(k3, geom = "point", data = cluster_x) + ggtitle("K means k=5")
+p4 <- fviz_cluster(k4, geom = "point", data = cluster_x) + ggtitle("K means k=6")
+
+
+## Concanate grids
+grid.arrange(p0, p1, p2, p3, p4)
+```
+
+```{r}
+## Determine n of cluster, plot Elbow method
+fviz_nbclust(cluster_x, kmeans, method = "wss") +
+  geom_vline(xintercept = 2, linetype = 2) 
+```
+
+k = 2 forms the perfect elbow
+
+
+## Evaluation
+
+```{r}
+## Applying n = 4 clusters on dataset.
+cluster_Df <- data.frame(wHappiness_Df, Cluster = k0$cluster) %>% 
+  mutate(Cluster = as.factor(Cluster))
+
+cluster_Df %>% 
+  group_by(Cluster) %>% 
+  ggplot(aes(x = Regional.indicator, y = Healthy.life.expectancy, colour = Cluster)) +
+  geom_jitter()  +
+  facet_wrap(~Cluster) +
+  coord_flip()
+  
+```
+
+#### Ladder score of Happiness
+
+```{r}
+cluster_Df %>% 
+  group_by(Cluster) %>% 
+  ggplot(aes(x = Regional.indicator, y = Ladder.score, colour = Cluster)) +
+  geom_jitter()  +
+  facet_wrap(~Cluster) +
+  coord_flip()
+```
+
+
+
+#### Logged GDP/Capita
+
+```{r}
+cluster_Df %>% 
+  group_by(Cluster) %>% 
+  ggplot(aes(x = Regional.indicator, y = Logged.GDP.per.capita, colour = Cluster)) +
+  geom_jitter()  +
+  facet_wrap(~Cluster) +
+  coord_flip()
+```
+
+#### Perception of Corruption
+```{r}
+cluster_Df %>% 
+  group_by(Cluster) %>% 
+  ggplot(aes(x = Regional.indicator, y = Perceptions.of.corruption, colour = Cluster)) +
+  geom_jitter()  +
+  facet_wrap(~Cluster) +
+  coord_flip()
+```
+
+
+Perception of corruption in the Second Cluster is more generalized, unlike the first cluster who have a more defined and uniform perception of corruption, however provided by the survey's scale.
+
+At this junction our evaluation of our cluster analysis gives to define the clusters in pre-concieved real world ideas of (k = 1)Developed and (k =2) Developing Clusters/Countries, which are found, ironically, to rate higher on the scale of happiness. Indicatively more has to be done to attenuate the real reasons behind these metrics.
+
+```{r}
+cluster_Df <- cluster_Df %>% 
+  mutate(Cluster = if_else(Cluster == 1, "Developed_Region", "Developing_Region"))
+```
+
